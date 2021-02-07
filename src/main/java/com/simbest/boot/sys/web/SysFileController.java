@@ -32,7 +32,13 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
 import org.springframework.util.Assert;
-import org.springframework.web.bind.annotation.*;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.multipart.MultipartHttpServletRequest;
 
@@ -178,7 +184,7 @@ public class SysFileController extends LogicController<SysFile, String> {
     @ResponseBody
     public ResponseEntity<?> download(HttpServletRequest request, @RequestParam("id") String id) throws FileNotFoundException, UnsupportedEncodingException {
         SysFile sysFile = fileService.findById(id);
-        Assert.notNull(sysFile, String.format("通过文件Id【{}】无法获取文件", id));
+        Assert.notNull(sysFile, String.format("通过文件Id【%s】无法获取文件", id));
         HttpHeaders headers = new HttpHeaders();
         headers.add("Cache-Control", "no-cache, no-store, must-revalidate");
         headers.add("Pragma", "no-cache");
@@ -194,9 +200,9 @@ public class SysFileController extends LogicController<SysFile, String> {
 
         //设置文件类型
         File realFile = fileService.getRealFileById(id);
-        if(AppFileUtil.isImage(realFile)){
-            String fileType = AppFileUtil.getFileType(realFile);
-            String[] fileTypes = StringUtils.split(fileType, ApplicationConstants.SLASH);
+        String fileType = AppFileUtil.getFileType(realFile); //image/jpeg video/mp4
+        String[] fileTypes = StringUtils.split(fileType, ApplicationConstants.SLASH);
+        if(AppFileUtil.isImage(realFile) || "video".equals(fileTypes[0])){
             headers.setContentType(new MediaType(fileTypes[0], fileTypes[1]));
         } else {
             headers.setContentType(MediaType.APPLICATION_OCTET_STREAM);
@@ -216,7 +222,7 @@ public class SysFileController extends LogicController<SysFile, String> {
     @GetMapping(value = {"/ngopen", "/ngopen/sso", "/ngopen/api"})
     public String ngopen(@RequestParam("id") String id, @RequestParam(value = "uploadPath", required = false) String uploadPath) {
         SysFile sysFile = fileService.findById(id);
-        Assert.notNull(sysFile, String.format("通过文件Id【{}】无法获取文件", id));
+        Assert.notNull(sysFile, String.format("通过文件Id【%s】无法获取文件", id));
         log.debug("尝试预览文件地址为【{}】", sysFile.getFilePath());
         if(StringUtils.isEmpty(uploadPath)){
             uploadPath = config.getUploadPath();
@@ -236,7 +242,7 @@ public class SysFileController extends LogicController<SysFile, String> {
     @GetMapping(value = {OPEN_URL, OPEN_URL_SSO, OPEN_URL_API})
     public String open(@RequestParam("id") String id) throws Exception {
         SysFile sysFile = fileService.findById(id);
-        Assert.notNull(sysFile, String.format("通过文件Id【{}】无法获取文件", id));
+        Assert.notNull(sysFile, String.format("通过文件Id【%s】无法获取文件", id));
         log.debug("尝试预览文件地址为【{}】", sysFile.getFilePath());
         String fastDfsUrl = config.getAppHostPort() + ApplicationConstants.SLASH + sysFile.getFilePath();
         String redirectUrl = getOfficeweb365Url(fastDfsUrl);
