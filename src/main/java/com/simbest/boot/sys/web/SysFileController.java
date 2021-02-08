@@ -42,15 +42,19 @@ import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.multipart.MultipartHttpServletRequest;
 
+import javax.servlet.ServletOutputStream;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
+import java.io.IOException;
 import java.io.PrintWriter;
+import java.io.RandomAccessFile;
 import java.io.UnsupportedEncodingException;
 import java.net.URLEncoder;
 import java.util.Collection;
+import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -109,10 +113,10 @@ public class SysFileController extends LogicController<SysFile, String> {
     @ResponseBody
     public JsonResponse uploadFile(@RequestParam("file") MultipartFile file, @RequestParam(value = "pmInsType", required = false) String pmInsType,
                                    @RequestParam(value = "pmInsId", required = false) String pmInsId,
-                                   @RequestParam(value = "pmInsTypePart", required = false) String pmInsTypePart ) {
+                                   @RequestParam(value = "pmInsTypePart", required = false) String pmInsTypePart) {
         SysFile sysFile = fileService.uploadProcessFile(file, pmInsType, pmInsId, pmInsTypePart);
         JsonResponse jsonResponse;
-        if(null != sysFile) {
+        if (null != sysFile) {
             UploadFileResponse uploadFileResponse = new UploadFileResponse();
             uploadFileResponse.setSysFiles(ImmutableList.of(sysFile));
             jsonResponse = JsonResponse.success(uploadFileResponse);
@@ -125,9 +129,9 @@ public class SysFileController extends LogicController<SysFile, String> {
     @ApiOperation(value = "传统方式上传附件（支持IE8）,支持关联流程", notes = "会保存到数据库SYS_FILE")
     @PostMapping(value = {UPLOAD_PROCESS_FILES_URL, UPLOAD_PROCESS_FILES_URL_SSO, UPLOAD_PROCESS_FILES_URL_API})
     @ResponseBody
-    public void uploadFile(HttpServletRequest request, HttpServletResponse response) throws Exception{
+    public void uploadFile(HttpServletRequest request, HttpServletResponse response) throws Exception {
         JsonResponse jsonResponse = doUploadFile(request, response);
-        String result = "<script type=\"text/javascript\">parent.result="+JacksonUtils.obj2json(jsonResponse)+"</script>";
+        String result = "<script type=\"text/javascript\">parent.result=" + JacksonUtils.obj2json(jsonResponse) + "</script>";
         response.setContentType("text/html; charset=UTF-8");
         response.setCharacterEncoding("UTF-8");
         PrintWriter out = response.getWriter();
@@ -138,7 +142,7 @@ public class SysFileController extends LogicController<SysFile, String> {
     @ApiOperation(value = "REST方式上传附件,支持关联流程", notes = "会保存到数据库SYS_FILE")
     @PostMapping(value = {UPLOAD_PROCESS_FILES_URL_REST, UPLOAD_PROCESS_FILES_URL_REST_SSO, UPLOAD_PROCESS_FILES_URL_REST_API})
     @ResponseBody
-    public ResponseEntity<?> uploadFileRest(HttpServletRequest request, HttpServletResponse response) throws Exception{
+    public ResponseEntity<?> uploadFileRest(HttpServletRequest request, HttpServletResponse response) throws Exception {
         JsonResponse jsonResponse = doUploadFile(request, response);
         return new ResponseEntity(jsonResponse, HttpStatus.OK);
     }
@@ -146,7 +150,7 @@ public class SysFileController extends LogicController<SysFile, String> {
     /**
      * 上传文件,支持关联流程
      */
-    private JsonResponse doUploadFile(HttpServletRequest request, HttpServletResponse response) throws Exception{
+    private JsonResponse doUploadFile(HttpServletRequest request, HttpServletResponse response) throws Exception {
         Set<MultipartFile> uploadingFileSet = Sets.newHashSet();
         MultipartHttpServletRequest mureq = (MultipartHttpServletRequest) request;
         //优先通过指定参数名称file获取文件
@@ -160,7 +164,7 @@ public class SysFileController extends LogicController<SysFile, String> {
                 request.getParameter("pmInsId"),
                 request.getParameter("pmInsTypePart"));
         JsonResponse jsonResponse;
-        if(!sysFiles.isEmpty()) {
+        if (!sysFiles.isEmpty()) {
             UploadFileResponse uploadFileResponse = new UploadFileResponse();
             uploadFileResponse.setSysFiles(sysFiles);
             jsonResponse = JsonResponse.success(uploadFileResponse);
@@ -172,7 +176,94 @@ public class SysFileController extends LogicController<SysFile, String> {
 
 
     /**
-     * 下载文件
+     * 下载视频文件(解决iOS操作系统播放MP4)
+     * 参考：https://blog.csdn.net/weixin_42553179/article/details/100008911
+     * @param request
+     * @param id
+     * @throws IOException
+     */
+    @GetMapping(value = {"/downloadVideo", "/downloadVideo/sso", "/downloadVideo/api", "/downloadVideo/anonymous"})
+    @ResponseBody
+    public void downloadVideo(HttpServletRequest request, HttpServletResponse response, @RequestParam("id") String id) throws IOException {
+        SysFile sysFile = fileService.findById(id);
+        Assert.notNull(sysFile, String.format("通过文件Id【%s】无法获取文件", id));
+        //获取真实文件
+        File realFile = fileService.getRealFileById(id);
+        RandomAccessFile randomFile = new RandomAccessFile(realFile, "r");//只读模式
+        long contentLength = randomFile.length();
+        String range = request.getHeader("Range");
+        int start = 0, end = 0;
+        if (range != null && range.startsWith("bytes=")) {
+            String[] values = range.split("=")[1].split("-");
+            start = Integer.parseInt(values[0]);
+            if (values.length > 1) {
+                end = Integer.parseInt(values[1]);
+            }
+        }
+        int requestSize = 0;
+        if (end != 0 && end > start) {
+            requestSize = end - start + 1;
+        } else {
+            requestSize = Integer.MAX_VALUE;
+        }
+        String fileType = AppFileUtil.getFileType(realFile); //支持 video/mp4
+        log.debug("下载文件【{}】类型为【{}】", sysFile.getFileName(), fileType);
+//        response.setContentType("video/mp4");
+        response.setContentType(fileType);
+        response.setHeader("Accept-Ranges", "bytes");
+        response.setHeader("ETag", sysFile.getFileName());
+        response.setHeader("Last-Modified", new Date().toString());
+        //第一次请求只返回content length来让客户端请求多次实际数据
+        if (range == null) {
+            log.debug("分段请求Range区间【{}】", range);
+            response.setHeader("Content-length", contentLength + "");
+        } else {
+            log.debug("分段请求Range区间【{}】", range);
+            //以后的多次以断点续传的方式来返回视频数据
+            response.setStatus(HttpServletResponse.SC_PARTIAL_CONTENT);//206
+            long requestStart = 0, requestEnd = 0;
+            String[] ranges = range.split("=");
+            if(ranges.length > 1){
+                String[] rangeDatas = ranges[1].split("-");
+                requestStart = Integer.parseInt(rangeDatas[0]);
+                if(rangeDatas.length > 1){
+                    requestEnd = Integer.parseInt(rangeDatas[1]);
+                }
+            }
+            long length = 0;
+            if(requestEnd > 0){
+                length = requestEnd - requestStart + 1;
+                response.setHeader("Content-length", "" + length);
+                response.setHeader("Content-Range", "bytes " + requestStart + "-" + requestEnd + "/" + contentLength);
+            }else{
+                length = contentLength - requestStart;
+                response.setHeader("Content-length", "" + length);
+                response.setHeader("Content-Range", "bytes "+ requestStart + "-" + (contentLength - 1) + "/" + contentLength);
+            }
+        }
+        ServletOutputStream out = response.getOutputStream();
+        int needSize = requestSize;
+        randomFile.seek(start);
+        while(needSize > 0){
+            byte[] buffer = new byte[4096];
+            int len = randomFile.read(buffer);
+            if(needSize < buffer.length){
+                out.write(buffer, 0, needSize);
+            } else {
+                out.write(buffer, 0, len);
+                if(len < buffer.length){
+                    break;
+                }
+            }
+            needSize -= buffer.length;
+        }
+        randomFile.close();
+        out.close();
+    }
+
+    /**
+     * 下载文件(图片和通用文档)
+     *
      * @param request
      * @param id
      * @return JsonResponse
@@ -182,7 +273,7 @@ public class SysFileController extends LogicController<SysFile, String> {
     @ApiOperation(value = "下载文件")
     @GetMapping(value = {DOWNLOAD_URL, DOWNLOAD_URL_SSO, DOWNLOAD_URL_API, DOWNLOAD_URL_ANONYMOUSI})
     @ResponseBody
-    public ResponseEntity<?> download(HttpServletRequest request, @RequestParam("id") String id) throws FileNotFoundException, UnsupportedEncodingException {
+    public ResponseEntity<?> download(HttpServletRequest request, @RequestParam("id") String id) throws IOException {
         SysFile sysFile = fileService.findById(id);
         Assert.notNull(sysFile, String.format("通过文件Id【%s】无法获取文件", id));
         HttpHeaders headers = new HttpHeaders();
@@ -198,13 +289,22 @@ public class SysFileController extends LogicController<SysFile, String> {
         }
         headers.set(HttpHeaders.CONTENT_DISPOSITION, "attachment;filename=\"" + fileName + "\"");
 
-        //设置文件类型
+        //获取真实文件
         File realFile = fileService.getRealFileById(id);
+        //设置文件类型
         String fileType = AppFileUtil.getFileType(realFile); //image/jpeg video/mp4
+        log.debug("下载文件【{}】类型为【{}】", sysFile.getFileName(), fileType);
         String[] fileTypes = StringUtils.split(fileType, ApplicationConstants.SLASH);
-        if(AppFileUtil.isImage(realFile) || "video".equals(fileTypes[0])){
+        //1-响应图片
+        if (AppFileUtil.isImage(realFile)) {
             headers.setContentType(new MediaType(fileTypes[0], fileTypes[1]));
-        } else {
+        }
+        //2-响应视频--iOS操作系统无法播放，可使用/downloadVideo
+        else if ("video".equals(fileTypes[0])) {
+            headers.setContentType(new MediaType(fileTypes[0], fileTypes[1]));
+        }
+        //3-响应文件流
+        else{
             headers.setContentType(MediaType.APPLICATION_OCTET_STREAM);
         }
         headers.setContentLength(sysFile.getFileSize());
@@ -213,90 +313,91 @@ public class SysFileController extends LogicController<SysFile, String> {
     }
 
 
-    /**
-     * 在线预览文件，但依赖于Nginx
-     * @param id
-     * @param uploadPath
-     * @return String
-     */
-    @GetMapping(value = {"/ngopen", "/ngopen/sso", "/ngopen/api"})
-    public String ngopen(@RequestParam("id") String id, @RequestParam(value = "uploadPath", required = false) String uploadPath) {
-        SysFile sysFile = fileService.findById(id);
-        Assert.notNull(sysFile, String.format("通过文件Id【%s】无法获取文件", id));
-        log.debug("尝试预览文件地址为【{}】", sysFile.getFilePath());
-        if(StringUtils.isEmpty(uploadPath)){
-            uploadPath = config.getUploadPath();
+        /**
+         * 在线预览文件，但依赖于Nginx
+         * @param id
+         * @param uploadPath
+         * @return String
+         */
+        @GetMapping(value = {"/ngopen", "/ngopen/sso", "/ngopen/api"})
+        public String ngopen (@RequestParam("id") String
+        id, @RequestParam(value = "uploadPath", required = false) String uploadPath){
+            SysFile sysFile = fileService.findById(id);
+            Assert.notNull(sysFile, String.format("通过文件Id【%s】无法获取文件", id));
+            log.debug("尝试预览文件地址为【{}】", sysFile.getFilePath());
+            if (StringUtils.isEmpty(uploadPath)) {
+                uploadPath = config.getUploadPath();
+            }
+            String nginxUrl = config.getAppHostPort() + NGINX_STATIC_FILE_LOCATION + StringUtils.remove(sysFile.getFilePath(), uploadPath);
+            log.debug("转换后webOfficeUrl地址为【{}】", nginxUrl);
+            return "redirect:" + nginxUrl;
         }
-        String nginxUrl = config.getAppHostPort() + NGINX_STATIC_FILE_LOCATION + StringUtils.remove(sysFile.getFilePath(), uploadPath);
-        log.debug("转换后webOfficeUrl地址为【{}】", nginxUrl);
-        return "redirect:"+nginxUrl;
-    }
 
 
-    /**
-     * 在线预览文件，仅适用于保存在FastDfs环境中的文件, 并且依赖http://www.officeweb365.com/
-     * @param id
-     * @return String
-     * @throws Exception
-     */
-    @GetMapping(value = {OPEN_URL, OPEN_URL_SSO, OPEN_URL_API})
-    public String open(@RequestParam("id") String id) throws Exception {
-        SysFile sysFile = fileService.findById(id);
-        Assert.notNull(sysFile, String.format("通过文件Id【%s】无法获取文件", id));
-        log.debug("尝试预览文件地址为【{}】", sysFile.getFilePath());
-        String fastDfsUrl = config.getAppHostPort() + ApplicationConstants.SLASH + sysFile.getFilePath();
-        String redirectUrl = getOfficeweb365Url(fastDfsUrl);
-        log.debug("转换后webOfficeUrl地址为【{}】", redirectUrl);
-        return "redirect:"+redirectUrl;
-    }
-
-    /**
-     * 在线预览文件，支持任意免认证的URL, 并且依赖http://www.officeweb365.com/
-     * @param url
-     * @return String
-     * @throws Exception
-     */
-    @RequestMapping(value = {"/openurl", "/openurl/sso", "/openurl/api"}, method = {RequestMethod.POST, RequestMethod.GET})
-    public String openurl(@RequestParam String url) throws Exception {
-        return "redirect:"+getOfficeweb365Url(url);
-    }
-
-    /**
-     * 在线预览文件，支持任意免认证的URL,不进行重定向, 并且依赖http://www.officeweb365.com/
-     * @param url
-     * @return
-     * @throws Exception
-     */
-    @RequestMapping(value = {"/get/url", "/get/url/sso", "/get/url/api"}, method = {RequestMethod.POST, RequestMethod.GET})
-    @ResponseBody
-    public ResponseEntity openurlNoRedirect( @RequestParam String url) throws Exception {
-        return new ResponseEntity(JsonResponse.success( getOfficeweb365Url(url) ), HttpStatus.OK);
-    }
-
-    private String getOfficeweb365Url(String url) throws Exception {
-        if(UrlEncoderUtils.hasUrlEncoded(url)){
-            url = urlEncryptor.decrypt(url);
+        /**
+         * 在线预览文件，仅适用于保存在FastDfs环境中的文件, 并且依赖http://www.officeweb365.com/
+         * @param id
+         * @return String
+         * @throws Exception
+         */
+        @GetMapping(value = {OPEN_URL, OPEN_URL_SSO, OPEN_URL_API})
+        public String open (@RequestParam("id") String id) throws Exception {
+            SysFile sysFile = fileService.findById(id);
+            Assert.notNull(sysFile, String.format("通过文件Id【%s】无法获取文件", id));
+            log.debug("尝试预览文件地址为【{}】", sysFile.getFilePath());
+            String fastDfsUrl = config.getAppHostPort() + ApplicationConstants.SLASH + sysFile.getFilePath();
+            String redirectUrl = getOfficeweb365Url(fastDfsUrl);
+            log.debug("转换后webOfficeUrl地址为【{}】", redirectUrl);
+            return "redirect:" + redirectUrl;
         }
-        log.debug("尝试预览文件地址为【{}】", url);
-        String redirectUrl = config.getAppHostPort()+"/webOffice/?furl="+ WebOffice3Des.encode(url);
-        log.debug("转换后webOfficeUrl地址为【{}】", redirectUrl);
-        return redirectUrl;
-    }
 
-    @PostMapping(value = DELETE_URL)
-    @ResponseBody
-    public JsonResponse deleteById(@RequestParam("id") String id){
-        fileService.deleteById(id);
-        return JsonResponse.defaultSuccessResponse();
-    }
+        /**
+         * 在线预览文件，支持任意免认证的URL, 并且依赖http://www.officeweb365.com/
+         * @param url
+         * @return String
+         * @throws Exception
+         */
+        @RequestMapping(value = {"/openurl", "/openurl/sso", "/openurl/api"}, method = {RequestMethod.POST, RequestMethod.GET})
+        public String openurl (@RequestParam String url) throws Exception {
+            return "redirect:" + getOfficeweb365Url(url);
+        }
 
-    @Override
-    @ResponseBody
-    @PostMapping(value = {"/update" , "/update/api", "/update/sso"})
-    public JsonResponse update(@RequestBody SysFile sysFile) {
-        JsonResponse jsonResponse = super.update( sysFile );
-        return jsonResponse;
-    }
+        /**
+         * 在线预览文件，支持任意免认证的URL,不进行重定向, 并且依赖http://www.officeweb365.com/
+         * @param url
+         * @return
+         * @throws Exception
+         */
+        @RequestMapping(value = {"/get/url", "/get/url/sso", "/get/url/api"}, method = {RequestMethod.POST, RequestMethod.GET})
+        @ResponseBody
+        public ResponseEntity openurlNoRedirect (@RequestParam String url) throws Exception {
+            return new ResponseEntity(JsonResponse.success(getOfficeweb365Url(url)), HttpStatus.OK);
+        }
+
+        private String getOfficeweb365Url (String url) throws Exception {
+            if (UrlEncoderUtils.hasUrlEncoded(url)) {
+                url = urlEncryptor.decrypt(url);
+            }
+            log.debug("尝试预览文件地址为【{}】", url);
+            String redirectUrl = config.getAppHostPort() + "/webOffice/?furl=" + WebOffice3Des.encode(url);
+            log.debug("转换后webOfficeUrl地址为【{}】", redirectUrl);
+            return redirectUrl;
+        }
+
+        @PostMapping(value = DELETE_URL)
+        @ResponseBody
+        public JsonResponse deleteById (@RequestParam("id") String id){
+            fileService.deleteById(id);
+            return JsonResponse.defaultSuccessResponse();
+        }
+
+        @Override
+        @ResponseBody
+        @PostMapping(value = {"/update", "/update/api", "/update/sso"})
+        public JsonResponse update (@RequestBody SysFile sysFile){
+            JsonResponse jsonResponse = super.update(sysFile);
+            return jsonResponse;
+        }
 
 //    /**
 //     * 涉及到具体对象的操作，所以不直接暴露接口
@@ -323,20 +424,20 @@ public class SysFileController extends LogicController<SysFile, String> {
 //        }
 //    }
 
-    public static void main(String[] args) throws Exception {
-        WebOffice3Des webOffice3Des = new WebOffice3Des();
-        AppConfig config = new AppConfig();
-        config.setAppHostPort("http://211.138.31.210:8088");
-        SysFileController sysFileController = new SysFileController(null);
-        sysFileController.setConfig(config);
-        String url = "http://10.87.13.91:8888/20200525/DemoExcel.xlsx";
-        System.out.println(sysFileController.getOfficeweb365Url(url));
-        url = "http://10.87.13.91:8888/20200525/DemoPdf.pdf";
-        System.out.println(sysFileController.getOfficeweb365Url(url));
-        url = "http://10.87.13.91:8888/20200525/DemoPpt.pptx";
-        System.out.println(sysFileController.getOfficeweb365Url(url));
-        url = "http://10.87.13.91:8888/20200525/DemoWord.doc";
-        System.out.println(sysFileController.getOfficeweb365Url(url));
-    }
+        public static void main (String[]args) throws Exception {
+            WebOffice3Des webOffice3Des = new WebOffice3Des();
+            AppConfig config = new AppConfig();
+            config.setAppHostPort("http://211.138.31.210:8088");
+            SysFileController sysFileController = new SysFileController(null);
+            sysFileController.setConfig(config);
+            String url = "http://10.87.13.91:8888/20200525/DemoExcel.xlsx";
+            System.out.println(sysFileController.getOfficeweb365Url(url));
+            url = "http://10.87.13.91:8888/20200525/DemoPdf.pdf";
+            System.out.println(sysFileController.getOfficeweb365Url(url));
+            url = "http://10.87.13.91:8888/20200525/DemoPpt.pptx";
+            System.out.println(sysFileController.getOfficeweb365Url(url));
+            url = "http://10.87.13.91:8888/20200525/DemoWord.doc";
+            System.out.println(sysFileController.getOfficeweb365Url(url));
+        }
 
-}
+    }
