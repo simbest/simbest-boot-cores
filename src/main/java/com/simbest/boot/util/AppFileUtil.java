@@ -357,25 +357,25 @@ public class AppFileUtil {
             uploadFileName = JacksonUtils.escapeString(uploadFileName);
             if(validateUploadFileType(uploadFileName)) {
                 log.debug("即将以【{}】方式上传【{}】文件", serverUploadLocation, uploadFileName);
-                File tempFile = File.createTempFile("tmp", null);
-                multipartFile.transferTo(tempFile);
+                //File tempFile = File.createTempFile("tmp", null);
+                //multipartFile.transferTo(tempFile);
                 //置为null是为了告诉gc此块内存可以回收
-                multipartFile = null;
+                //multipartFile = null;
                 switch (serverUploadLocation) {
                     case disk:
                         //修改避免使用multipartFile.getBytes()  会产生2倍的文件大小
-                        //uploadFilePath = diskUpload(multipartFile.getBytes(), createAutoUploadDirFile(directory), uploadFileName);
-                        uploadFilePath = diskUpload(FileUtil.readBytes(tempFile), createAutoUploadDirFile(directory), uploadFileName);
+                        uploadFilePath = diskUpload(multipartFile.getBytes(), createAutoUploadDirFile(directory), uploadFileName);
+                        //uploadFilePath = diskUpload(FileUtil.readBytes(tempFile), createAutoUploadDirFile(directory), uploadFileName);
                         break;
                     case fastdfs:
-                        //uploadFilePath = fastDfsUpload(multipartFile.getBytes(), uploadFileName);
-                        uploadFilePath = fastDfsUpload(FileUtil.readBytes(tempFile), uploadFileName);
+                        uploadFilePath = fastDfsUpload(multipartFile.getBytes(), uploadFileName);
+                        //uploadFilePath = fastDfsUpload(FileUtil.readBytes(tempFile), uploadFileName);
                         break;
                     case ftp:
                         log.debug("基于ftp，方式同sftp");
                     case sftp:
-                        //uploadFilePath = ftpSftpUpload(multipartFile.getBytes(), createAutoUploadDirPath(directory), uploadFileName);
-                        uploadFilePath = ftpSftpUpload(FileUtil.readBytes(tempFile), createAutoUploadDirPath(directory), uploadFileName);
+                        uploadFilePath = ftpSftpUpload(multipartFile.getBytes(), createAutoUploadDirPath(directory), uploadFileName);
+                        //uploadFilePath = ftpSftpUpload(FileUtil.readBytes(tempFile), createAutoUploadDirPath(directory), uploadFileName);
                         break;
                 }
                 Assert.notNull(uploadFilePath, String.format("文件以【%s】方式上传失败", serverUploadLocation));
@@ -785,7 +785,9 @@ public class AppFileUtil {
     public File createTempFile(String suffix){
         File tempFile = null;
         try {
-            tempFile = new File(config.getUploadTmpFileLocation().concat(ApplicationConstants.SEPARATOR).concat(CodeGenerator.systemUUID()+ApplicationConstants.DOT+suffix));
+            //tempFile = new File(config.getUploadTmpFileLocation().concat(ApplicationConstants.SEPARATOR).concat(CodeGenerator.systemUUID()+ApplicationConstants.DOT+suffix));
+            tempFile = new File(config.getUploadTmpFileLocation().concat(ApplicationConstants.SEPARATOR).concat(CodeGenerator.systemUUID() + "." + suffix));
+            FileUtils.forceDeleteOnExit(tempFile);
             FileUtils.touch(tempFile);
         } catch (IOException e) {
             Exceptions.printException(e);
