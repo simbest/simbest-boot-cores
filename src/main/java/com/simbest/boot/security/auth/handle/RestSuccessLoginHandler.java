@@ -5,7 +5,6 @@ package com.simbest.boot.security.auth.handle;
 
 import com.simbest.boot.base.web.response.JsonResponse;
 import com.simbest.boot.security.IUser;
-import com.simbest.boot.util.ObjectUtil;
 import com.simbest.boot.util.json.JacksonUtils;
 import com.simbest.boot.util.redis.RedisRetryLoginCache;
 import com.simbest.boot.util.security.LoginUtils;
@@ -16,10 +15,10 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.web.authentication.AuthenticationSuccessHandler;
 import org.springframework.stereotype.Component;
 
-import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.io.PrintWriter;
 
 /**
  * 用途：REST方式登录成功，记录登录日志
@@ -36,7 +35,7 @@ public class RestSuccessLoginHandler implements AuthenticationSuccessHandler {
 
     @Override
     public void onAuthenticationSuccess(HttpServletRequest request, HttpServletResponse response,
-                                        Authentication authentication) throws IOException, ServletException {
+                                        Authentication authentication) throws IOException {
         Object returnObj = JsonResponse.authorized();
         if(authentication.getPrincipal() instanceof IUser){
             IUser iUser = (IUser)authentication.getPrincipal();
@@ -49,9 +48,11 @@ public class RestSuccessLoginHandler implements AuthenticationSuccessHandler {
             //记录当前登录账号
             loginUtils.recordLoginUsername(iUser.getUsername());
         }
-
+        PrintWriter writer = response.getWriter();
         response.setCharacterEncoding("utf-8");
         response.setContentType("text/javascript;charset=utf-8");
-        response.getWriter().print(JacksonUtils.obj2json(returnObj));
+        writer.print(JacksonUtils.obj2json(returnObj));
+        writer.flush();
+        writer.close();
     }
 }

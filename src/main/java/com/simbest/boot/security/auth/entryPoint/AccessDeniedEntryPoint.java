@@ -13,6 +13,7 @@ import org.springframework.security.web.AuthenticationEntryPoint;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.io.PrintWriter;
 
 /**
  * 用途：无权限认证入口
@@ -25,9 +26,12 @@ public class AccessDeniedEntryPoint implements AuthenticationEntryPoint {
     @Override
     public void commence(HttpServletRequest request, HttpServletResponse response,
                          AuthenticationException authException) throws IOException {
+        PrintWriter writer = response.getWriter();
         response.setCharacterEncoding("utf-8");
         response.setContentType("text/javascript;charset=utf-8");
         log.warn("无权限访问【{}】，即将返回HttpStatus.UNAUTHORIZED，状态码【{}】", request.getRequestURI(), HttpStatus.UNAUTHORIZED.value());
-        response.getWriter().print(JacksonUtils.obj2json(JsonResponse.unauthorized(request, authException)));
+        writer.print(JacksonUtils.obj2json(JsonResponse.unauthorized(request, authException)));
+        writer.flush();
+        writer.close();
     }
 }
