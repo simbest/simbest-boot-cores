@@ -5,6 +5,7 @@ package com.simbest.boot.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.MediaType;
@@ -37,9 +38,13 @@ public class RestClientConfiguration {
     @Autowired
     private MappingJackson2HttpMessageConverter customJackson2HttpMessageConverter;
 
+//    @Value("${spring.servlet.multipart.max-file-size}")
+//    private String maxFileSize;
+
     @Bean
     public RestTemplate restTemplate() {
         SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+        requestFactory.setBufferRequestBody(false);
         requestFactory.setConnectTimeout(1000 * 30);// 设置建立连接超时时间  毫秒
         requestFactory.setReadTimeout(1000 * 30);// 设置读取数据超时时间  毫秒
         RestTemplate restTemplate = new RestTemplate(requestFactory);

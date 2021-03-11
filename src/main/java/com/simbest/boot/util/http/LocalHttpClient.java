@@ -2,6 +2,7 @@ package com.simbest.boot.util.http;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.simbest.boot.base.exception.Exceptions;
+import com.simbest.boot.config.RestClientConfiguration;
 import com.simbest.boot.util.xml.XMLConverUtil;
 import lombok.extern.slf4j.Slf4j;
 import okhttp3.OkHttpClient;
@@ -10,6 +11,14 @@ import okhttp3.Response;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.io.FileSystemResource;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.http.converter.ByteArrayHttpMessageConverter;
+import org.springframework.http.converter.FormHttpMessageConverter;
+import org.springframework.http.converter.HttpMessageConverter;
+import org.springframework.http.converter.ResourceHttpMessageConverter;
+import org.springframework.http.converter.StringHttpMessageConverter;
+import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
+import org.springframework.http.converter.xml.SourceHttpMessageConverter;
 import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestTemplate;
@@ -19,6 +28,8 @@ import java.io.IOException;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.nio.charset.UnsupportedCharsetException;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Optional;
 
 /**
@@ -40,7 +51,24 @@ public class LocalHttpClient {
 
 	private static OkHttpClient client = new OkHttpClient();
 
-	private static RestTemplate template = new RestTemplate();
+	private static RestTemplate template;
+
+	static{
+        SimpleClientHttpRequestFactory requestFactory = new SimpleClientHttpRequestFactory();
+        requestFactory.setBufferRequestBody(false);
+        requestFactory.setConnectTimeout(1000 * 30);// 设置建立连接超时时间  毫秒
+        requestFactory.setReadTimeout(1000 * 30);// 设置读取数据超时时间  毫秒
+        template = new RestTemplate(requestFactory);
+        List<HttpMessageConverter<?>> messageConverters = Arrays.asList(
+                new ByteArrayHttpMessageConverter(),
+                new StringHttpMessageConverter(StandardCharsets.UTF_8),
+                new ResourceHttpMessageConverter(),
+                new SourceHttpMessageConverter<>(),
+                new FormHttpMessageConverter(),
+                new MappingJackson2HttpMessageConverter()
+        );
+        template.setMessageConverters(messageConverters);
+    }
 
 	public static Response execute(Request request) {
 		try {
