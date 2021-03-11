@@ -42,7 +42,7 @@ public class SysLogWeb extends SystemModel {
     @NonNull
     private String url;
 
-    @Column(nullable = false, length = 20)
+    @Column(nullable = false, length = 50)
     @NonNull
     private String ip;
 
